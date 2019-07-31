@@ -21,6 +21,18 @@ User = get_user_model()
 
 
 class Chat(models.Model, SimpleCache):
+    """
+    This model help us represent the telegram Chat object in database.
+    But it adds also various field that help in dealing telegram Chat.
+    
+    id: the telegram Chat id
+    join_date: the date when the Chat is created in database (in fact 
+        when the bot is added in the chat)
+    username: the telegram Username
+    is_staff: is this chat a staff group for the bot
+    type: the telegram Chat.TYPE
+    timezone: the timezone of this group
+    lang: the language of this group"""
 
     id = models.IntegerField(unique=True, primary_key=True)
     join_date = models.DateTimeField(auto_now=True)
@@ -36,6 +48,10 @@ class Chat(models.Model, SimpleCache):
 
 
 class Group(models.Model, SimpleCache):
+    """
+    This model help just to match a chat.
+    
+    chat: the corresponding Chat"""
 
     chat = models.OneToOneField(Chat, models.SET_NULL, null=True)
     
@@ -82,6 +98,14 @@ class Group(models.Model, SimpleCache):
 
 
 class TgUser(models.Model, SimpleCache):
+    """
+    This User model help us work with telegram User and Django user in 
+    a simple fashion.
+    
+    id: the telegram ID, unique identifier
+    dj: the correspondant Django user
+    is_bot: whether or not the user is a bot
+    chat: the private chat of the user"""
 
     id = models.IntegerField(primary_key=True)
     dj = models.OneToOneField(User, models.DO_NOTHING, related_name='tg')
@@ -103,6 +127,10 @@ class TgUser(models.Model, SimpleCache):
 
 
 class Channel(models.Model, SimpleCache):
+    """
+    Channel model is used to save channel.
+    
+    chat: the chat as Chat, that is a channel"""
 
     chat = models.OneToOneField(Chat, models.SET_NULL, null=True)
     
@@ -136,6 +164,14 @@ class Channel(models.Model, SimpleCache):
 
 
 class Session(models.Model, SimpleCache):
+    """
+    The session Model is used to save user interaction with bot.
+    
+    state: the last state where the user was
+    add_infos: additional infos about this session
+    last_activity: the last time the user interacted with the bot
+    user: the user as a TgUser instance
+    chat: the chat as a Chat instance"""
 
     state = models.CharField(max_length=100)
     add_infos = models.TextField()
@@ -171,6 +207,21 @@ class Session(models.Model, SimpleCache):
 
 
 class Message(models.Model, SimpleCache):
+    """
+    This model represent some info about a telegram message.
+    Please note that this model doesn't store the message content 
+    but rather its metadata.
+    
+    id: match to message_id
+    user: match to a TgUser model instance
+    date: match to date
+    chat: match to a Chat model instance
+    data: a text field to add some extra infos about this message
+    forward_from_user: match TgUser model instance
+    forward_from_chat: match a Chat model instance
+    forward_date: match the date when message was forwarded
+    edit_date: match the date when message was lastly edited
+    reply_to: match to himself (Message)"""
 
     id = models.IntegerField(primary_key=True, unique=True)
     user = models.ForeignKey(TgUser, models.DO_NOTHING)
@@ -185,3 +236,20 @@ class Message(models.Model, SimpleCache):
     
     def from_tg_msg(self):
         pass
+    
+
+class Media(models.Model, SimpleCache):
+    """
+    This model represent a telegram Media
+    
+    id: correspond to telegram File_ID
+    intern: correspond to a file in the case the media was downloaded
+    type: the type of the media
+    desc: a small description about the file. To help you query it
+    message: a reference to a Message instance"""
+    
+    id = models.CharField(max_length=255, primary_key=True)
+    intern = models.FileField(upload_to='ninagram')
+    type = models.CharField(max_length=20)
+    desc = models.CharField(max_length=255, null=True, blank=True)
+    message = models.ForeignKey(Message, models.DO_NOTHING, null=True, blank=True)

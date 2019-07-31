@@ -13,14 +13,9 @@ from pprint import pprint
 from loguru import logger
 import re
 import traceback
-
+from ninagram.exceptions import *
 from django.template import Template, Context
 
-class StateException(Exception):
-    pass
-
-class NoResultStateException(StateException):
-    pass
 
 
 class AbstractState:
@@ -209,11 +204,20 @@ class AbstractState:
         return message, kbd
         
     def next(self, update: telegram.Update):
-        """This method is called to find the next State of from the current state.
-        It chains call like this: first it searchs a user defined method pre_next for 
-        the current step. if found it calls it, if not it calls the default pre_next method.
-        Then it calls the user defined method for the current step.
-        If the message comes from a group then it reroute the request to next_group"""
+        """This method is called to find the next State from the current state.
+        It chains call like this: 
+            - first it searchs a user defined method pre_next for the current step. if found it calls it.
+            - if not it calls the default pre_next method.
+            - Then it calls the user defined method for the current step.
+            
+        If the message comes from a group then it reroute the request to next_group.
+        In the State-Step pattern, it is responsible in deciding what is the new state or step 
+        to get the menu from.
+        
+        You should not override unless you know what you are doing."""
+        
+        if update.effective_chat.type == "group" or update.effective_chat.type == "supergroup":
+            return self.next_group(update)
         
         if not self.validate_access(update):
             # we try setting the step in the case we
@@ -223,12 +227,8 @@ class AbstractState:
                     return res
             except:
                 pass
-            return self.restore_state if self.restore_state != None else self.name
-        
-        self.set_return(False)
-        
-        if update.effective_chat.type == "group" or update.effective_chat.type == "supergroup":
-            return self.next_group(update)
+            state = self.restore_state if self.restore_state != None else self.name
+            return NextResponse(state, step=1)
         
         step = self.get_step()
             
@@ -243,11 +243,15 @@ class AbstractState:
         
         # we call the the pre step method that must perform various operations
         try:
-            pre_step_method = getattr(self, "pre_step_%d_next" % step)
+            try:
+                pre_step_method = getattr(self, "pre_step_%d_next" % step)
+            except:
+                raise StepNotFoundException
+            
             res = pre_step_method(update)
             if res and res.force_return == True:
                 return res
-        except AttributeError:
+        except StepNotFoundException:
             pass
         except Exception as e:
             logger.exception(str(e))
@@ -255,11 +259,15 @@ class AbstractState:
         step = self.get_step()        
             
         try:
-            step_method = getattr(self, "step_%s_next" % step)
+            try:
+                step_method = getattr(self, "step_%s_next" % step)
+            except:
+                raise StepNotFoundException
+            
             res = step_method(update)
             if res:
                 return res
-        except AttributeError:
+        except StepNotFoundException:
             pass        
         except Exception as e:
             logger.exception(str(e))        
@@ -283,6 +291,18 @@ class AbstractState:
         the current step. if found it calls it, if not it calls the default pre_next method.
         Then it calls the user defined method for the current step.
         This method is called only if the message come from a group"""
+        
+        if not self.validate_access(update):
+            # we try setting the step in the case we
+            try:
+                res = self.next_from_class_data(update)
+                if res:
+                    return res
+            except:
+                pass
+            state = self.restore_state if self.restore_state != None else self.name
+            return NextResponse(state, step=1)
+        
         step = self.get_step()
         
         # we call the the pre step method that must perform various operations
@@ -296,10 +316,15 @@ class AbstractState:
         step = self.get_step()
             
         try:
-            pre_step_method = getattr(self, "pre_step_%d_next_group" % step)
+            try:
+                pre_step_method = getattr(self, "pre_step_%d_next_group" % step)
+            except:
+                raise StepNotFoundException
+            
+            res = pre_step_method(update)
             if res and res.force_return == True:
                 return res            
-        except AttributeError:
+        except StepNotFoundException:
             pass        
         except Exception as e:
             logger.exception(str(e))
@@ -307,11 +332,15 @@ class AbstractState:
         step = self.get_step()
             
         try:
-            step_method = getattr(self, "step_%s_next_group" % step)
+            try:
+                step_method = getattr(self, "step_%s_next_group" % step)
+            except:
+                raise StepNotFoundException
+            
             res = step_method(update)
             if res:
                 return res
-        except AttributeError:
+        except StepNotFoundException:
             pass        
         except Exception as e:
             logger.exception(str(e))   
@@ -344,13 +373,11 @@ class AbstractState:
         Then it calls the user implementation of menu method for the current step.
         If the telegram chat type is group or supergroup it reroutes the call to menu_group()"""
         
-        if not self.validate_access(update):
-            return self.step_X_menu(update)
-        
-        self.set_return(False)
-        
         if update.effective_chat.type == "group" or update.effective_chat.type == "supergroup":
             return self.menu_group(update)
+        
+        if not self.validate_access(update):
+            return self.step_X_menu(update)        
         
         step = self.get_step()        
                 
@@ -368,10 +395,15 @@ class AbstractState:
         
         # we call the the pre step method that must perform various operations
         try:
-            pre_step_method = getattr(self, "pre_step_%d_menu" % step)
+            try:
+                pre_step_method = getattr(self, "pre_step_%d_menu" % step)
+            except:
+                raise StepNotFoundException
+            
+            res = pre_step_method(update)
             if res and res.force_return == True:
                 return res
-        except AttributeError:
+        except StepNotFoundException:
             pass                
         except Exception as e:
             logger.exception(str(e))
@@ -379,17 +411,20 @@ class AbstractState:
         step = self.get_step()        
         
         try:
-            step_method = getattr(self, "step_%s_menu" % step)
+            try:
+                step_method = getattr(self, "step_%s_menu" % step)
+            except:
+                raise StepNotFoundException
+            
             res = step_method(update)
             if res:
                 return res        
-        except AttributeError:
+        except StepNotFoundException:
             pass        
         except Exception as e:
             logger.exception(str(e))        
         
         logger.error("Can't get a valid MenuResponse")
-        return '', None
             
     def pre_menu(self, update: telegram.Update):
         """This method is executed before the call of the user menu step method.
@@ -406,7 +441,11 @@ class AbstractState:
         loads the default pre_menu method.
         Then it calls the user implementation of menu method for the current step"""
         
+        if not self.validate_access(update):
+            return self.step_X_menu_group(update)        
+        
         step = self.get_step()
+        logger.info("step {}", step)
         
         # we call the the pre step method that must perform various operations
         try:
@@ -417,31 +456,41 @@ class AbstractState:
             logger.exception(str(e))
     
         step = self.get_step()
+        logger.info("step {}", step)
     
         # we call the the pre step method that must perform various operations
         try:
-            pre_step_method = getattr(self, "pre_step_%d_menu_group" % step)
+            try:
+                pre_step_method = getattr(self, "pre_step_%d_menu_group" % step)
+            except:
+                raise StepNotFoundException
+            
+            res = pre_step_method(update)
             if res and res.force_return == True:
                 return res 
-        except AttributeError:
+        except StepNotFoundException:
             pass        
         except Exception as e:
             logger.exception(str(e))
     
-        step = self.get_step()        
+        step = self.get_step()  
     
         try:
-            step_method = getattr(self, "step_%s_menu_group" % step)
+            try:
+                step_method = getattr(self, "step_%s_menu_group" % step)
+            except:
+                logger.error("not found")
+                raise StepNotFoundException
+            
             res = step_method(update)
             if res:
                 return res
-        except AttributeError:
+        except StepNotFoundException:
             pass
         except Exception as e:
             logger.exception(str(e))        
     
-        logger.error("Can't find the next state")     
-        return '', None
+        logger.error("Can't get the menu")     
             
     def pre_menu_group(self, update: telegram.Update):
         """This method is executed before the call of the user menu step method and 
@@ -467,30 +516,36 @@ class AbstractState:
                 return res                
         except Exception as e:
             logger.exception(str(e))
-            pass
+            
                 
         # we call the the pre step method that must perform various operations
         try:
-            pre_step_method = getattr(self, "pre_step_%d_post" % step)
+            try:
+                pre_step_method = getattr(self, "pre_step_%d_post" % step)
+            except:
+                raise StepNotFoundException
+            
             res = pre_step_method(update, tg_message)
             if res:
                 return res
-        except AttributeError:
+        except StepNotFoundException:
             pass        
         except Exception as e:
             logger.exception(str(e))
-            pass
                 
         try:
-            step_method = getattr(self, "step_%s_post" % step)
+            try:
+                step_method = getattr(self, "step_%s_post" % step)
+            except:
+                raise StepNotFoundException
+            
             res = step_method(update, tg_message)
             if res:
                 return res
-        except AttributeError:
+        except StepNotFoundException:
             pass        
         except Exception as e:
             logger.exception(str(e))        
-            pass
         
     def pre_post(self, update: telegram.Update, tg_message:telegram.Message):
         """This method is called before the user defined next method for the current step.
@@ -509,34 +564,37 @@ class AbstractState:
             res = self.pre_post_group(update, tg_message)
             if res:
                 return res
-        except AttributeError:
-            pass
         except Exception as e:
-            #logger.exception(str(e))
-            pass
+            logger.exception(str(e))
         
         # we call the the pre step method that must perform various operations
         try:
-            pre_step_method = getattr(self, "pre_step_%d_post_group" % step)
+            try:
+                pre_step_method = getattr(self, "pre_step_%d_post_group" % step)
+            except:
+                raise StepNotFoundException
+            
             res = pre_step_method(update, tg_message)
             if res:
                 return res
-        except AttributeError:
+        except StepNotFoundException:
             pass        
         except Exception as e:
-            #logger.exception(str(e))
-            pass
+            logger.exception(str(e))
     
         try:
-            step_method = getattr(self, "step_%s_post_group" % step)
+            try:
+                step_method = getattr(self, "step_%s_post_group" % step)
+            except:
+                raise StepNotFoundException
+            
             res = step_method(update, tg_message)
             if res:
                 return res
-        except AttributeError:
+        except StepNotFoundException:
             pass        
         except Exception as e:
-            #logger.exception(str(e))                
-            pass
+            logger.exception(str(e))                
         
     def pre_post_group(self, update: telegram.Update, tg_message:telegram.Message):
         """This method is called before the user defined next method for the current step.
@@ -959,6 +1017,16 @@ class State(AbstractState):
             self.update.db.user.is_superuser = True
             self.update.db.user.is_staff = True
             self.update.db.user.save()
+            
+    def save_this_message(self, update:telegram.Update, data:str=None):
+        message = Message()
+        message.id = update.effective_message.message_id
+        message.user = update.db.user
+        message.date = update.effective_message.date
+        message.chat = update.db.chat
+        message.data = data
+        message.save()
+        return message
     
     
 class StateFactory:
@@ -1018,7 +1086,6 @@ class register_step:
         self.fn = fn
 
     def __set_name__(self, owner, name):
-        # do something with owner, i.e.
         res = self.RGX.search(name)
         if res:
             step = res.group(1)
