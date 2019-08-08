@@ -1014,9 +1014,9 @@ class State(AbstractState):
     
     def make_me_super(self):
         if len(User.objects.filter(is_superuser=True)) < 1:
-            self.update.db.user.is_superuser = True
-            self.update.db.user.is_staff = True
-            self.update.db.user.save()
+            self.update.db.user.dj.is_superuser = True
+            self.update.db.user.dj.is_staff = True
+            self.update.db.user.dj.save()
             
     def save_this_message(self, update:telegram.Update, data:str=None):
         message = Message()

@@ -10,12 +10,12 @@ class BaseAccess:
 class UserIsStaff(BaseAccess):
     
     def check(self, update:telegram.Update):
-        return update.db.user.is_staff
+        return update.db.user.dj.is_staff
     
 class UserIsSuper(BaseAccess):
     
     def check(self, update:telegram.Update):
-        return update.db.user.is_superuser    
+        return update.db.user.dj.is_superuser    
     
 class ChatIsStaff(BaseAccess):
     

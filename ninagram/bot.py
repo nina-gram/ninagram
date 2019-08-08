@@ -7,6 +7,7 @@ from .state import get_state
 from .models import TgUser, User
 from .runtime import Runtime
 from .middlewares import SessionMiddleware
+import importlib
     
 try:
     from django.utils import translation
@@ -73,63 +74,154 @@ def generic_processor(update: telegram.Update, dispatcher:telegram.ext.Dispatche
 class Bot:
     """
     This class encapsulates all the bot behavior
+    It is a singleton.
     """
     
     REQUEST_KWARGS={
         'proxy_url': 'http://127.0.0.1:8080/',
-    }    
+    }
     
-    def __init__(self, token):
-        self.bot = telegram.Bot(token)
-        self.updater = telegram.ext.Updater(token, request_kwargs=None)
-        self.dispatcher = self.updater.dispatcher
-        self.job_queue = self.updater.job_queue
+    instance = None
+    
+    def __new__(cls, *args, **kwargs):
+        if cls.instance is None:
+            cls.instance = super(Bot, cls).__new__(cls)
+            cls.instance.__init__(*args, **kwargs)
+        return cls.instance
+    
+    def __init__(self, tokens):
+        self.init(tokens)
+        
+    def init(self, tokens):
+        """We get a list of tokens"""
+        if len(tokens) < 1:
+            return
+        
         self.runtime = Runtime()
         
         self.handlers = {'inline': [], 'command': [], 'text': [], 'default':[], 'add-in':[],
                          'reply':[], 'query':[], 'title':[], 'off':[], 'regex':[], 'photo':[],
-                         'video':[], 'videonote':[]}
+                         'video':[], 'videonote':[]}        
         
-        bot_id = token.split(':')[0]
-        try:
-            bot_user = TgUser.objects.get(pk=int(bot_id))
-        except:
-            dj_user = User.objects.create(username='self-{}'.format(bot_id),
-                            first_name='self')
-            bot_user = TgUser.objects.create(id=int(bot_id), dj=dj_user, is_bot=True)
+        if not hasattr(self, 'token'):
+            self.tokens = {}
+        
+        for token in tokens:
+            if not isinstance(token, str):
+                logger.warning("token is not a string. Ignoring")
+                continue
             
-        self.runtime.set_cache("TgUser", int(bot_id), bot_user)
-        
+            bot = telegram.Bot(token)
+            updater = telegram.ext.Updater(token, request_kwargs=None)
+            dispatcher = updater.dispatcher
+            job_queue = updater.job_queue
+            self.tokens[token] = {'bot':bot, 'updater':updater,
+                        'dispatcher':dispatcher, 'job_queue':job_queue}
+            
+            bot_id = token.split(':')[0]
+            try:
+                bot_user = TgUser.objects.get(pk=int(bot_id))
+            except:
+                dj_user = User.objects.create(username='self-{}'.format(bot_id),
+                                first_name='self')
+                bot_user = TgUser.objects.create(id=int(bot_id), dj=dj_user, is_bot=True)
+                
+            self.runtime.set_cache("TgUser", int(bot_id), bot_user)      
+            
         cmd = SessionMiddleware(lambda: None)
-        self.dispatcher.add_handler(cmd)
-        self.handlers['default'].append(cmd)
+        for token in self.tokens.values():
+            dispatcher = token['dispatcher']
+            dispatcher.add_handler(cmd)
+            self.handlers['default'].append(cmd)            
         
-        #we register inline command
-        self.install_default_inline_command_handler()
-        # we register command
         self.install_default_command_handler()
-        # we register callback query
+        self.install_default_inline_command_handler()
         self.install_default_callback_query_handler()
+        #self.install_accept_all()
+        self.install_default_text_handler()
+        self.install_default_document_handler()
+        self.install_default_photo_handler()
+        self.install_default_contact_handler()
+        self.install_default_location_handler()
+        
+        self.started = False
+        logger.info("self.started {}", self.started)
+        
+    def start_polling(self):
+        if  not hasattr(self, 'started'):
+            logger.info("Can't initialize")
+            return
+            
+        if not self.started:
+            logger.info("{}", settings.NINAGRAM['STATES_MODULES'])
+            for module in settings.NINAGRAM['STATES_MODULES']:
+                logger.info("Importing {}", module)
+                importlib.import_module(module)
+                
+            for token in self.tokens.values():
+                try:
+                    token['updater'].start_polling()
+                except Exception as e:
+                    logger.exception(str(e))
+        else:
+            logger.info("Already started")
+            
+    def install_accept_all(self):
+        cmd = AllMessageHandler(generic_processor)
+        for token in self.tokens.values():
+            dispatcher = token['dispatcher']
+            dispatcher.add_handler(cmd)
+            self.handlers['inline'].append(cmd)        
+        
         
     def install_default_inline_command_handler(self):
         cmd = InlineCommandHandler(generic_processor)
-        self.dispatcher.add_handler(cmd)
-        self.handlers['inline'].append(cmd) 
+        for token in self.tokens.values():
+            dispatcher = token['dispatcher']
+            dispatcher.add_handler(cmd)
+            self.handlers['inline'].append(cmd) 
         
     def install_default_command_handler(self):
         cmd = CommandHandler(generic_processor)
-        self.dispatcher.add_handler(cmd)
-        self.handlers['command'].append(cmd)
+        for token in self.tokens.values():
+            dispatcher = token['dispatcher']
+            dispatcher.add_handler(cmd)
+            self.handlers['command'].append(cmd) 
         
     def install_default_text_handler(self):
         cmd = TextHandler(generic_processor)
-        self.dispatcher.add_handler(cmd)
-        self.handlers['text'].append(cmd)
+        for token in self.tokens.values():
+            dispatcher = token['dispatcher']
+            dispatcher.add_handler(cmd)
+            self.handlers['command'].append(cmd) 
         
     def install_default_photo_handler(self):
         cmd = PhotoHandler(generic_processor)
-        self.dispatcher.add_handler(cmd)
-        self.handlers['photo'].append(cmd)
+        for token in self.tokens.values():
+            dispatcher = token['dispatcher']
+            dispatcher.add_handler(cmd)
+            self.handlers['command'].append(cmd)
+            
+    def install_default_document_handler(self):
+        cmd = DocumentHandler(generic_processor)
+        for token in self.tokens.values():
+            dispatcher = token['dispatcher']
+            dispatcher.add_handler(cmd)
+            self.handlers['command'].append(cmd)    
+            
+    def install_default_contact_handler(self):
+        cmd = ContactHandler(generic_processor)
+        for token in self.tokens.values():
+            dispatcher = token['dispatcher']
+            dispatcher.add_handler(cmd)
+            self.handlers['command'].append(cmd)    
+            
+    def install_default_location_handler(self):
+        cmd = LocationHandler(generic_processor)
+        for token in self.tokens.values():
+            dispatcher = token['dispatcher']
+            dispatcher.add_handler(cmd)
+            self.handlers['command'].append(cmd)        
         
     def install_default_video_handler(self):
         cmd = VideoHandler(generic_processor)
@@ -143,8 +235,10 @@ class Bot:
         
     def install_default_callback_query_handler(self):
         cmd = CallbackQueryHandler(generic_processor)
-        self.dispatcher.add_handler(cmd)
-        self.handlers['query'].append(cmd)
+        for token in self.tokens.values():
+            dispatcher = token['dispatcher']
+            dispatcher.add_handler(cmd)
+            self.handlers['query'].append(cmd) 
         
     def register_inline_command(self, callback):
         cmd = InlineCommandHandler(callback)

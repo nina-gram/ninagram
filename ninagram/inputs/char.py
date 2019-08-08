@@ -5,12 +5,23 @@ from ninagram.state import State
 from ninagram.response import MenuResponse, NextResponse, InputResponse
 from loguru import logger
 from ninagram.inputs.base import AbstractInput
+import re
+
 
 class CharInput(AbstractInput):
+    """
+    This input should be used for short string.
+    
+    Args:
+        - max_length: the max length of the string
+        - min_length: the min length of the string
+        - null: whether or not the input should allow null value
+        - blank: whether or not the input should allow blank value
+    """
     
     def __init__(self, update:telegram.Update, dispatcher:telegram.ext.Dispatcher, *args, **kwargs):
-        self.max_length = kwargs.pop("max_length")
-        self.min_length = kwargs.pop("min_length")
+        self.max_length = kwargs.pop("max_length", 255)
+        self.min_length = kwargs.pop("min_length", 1)
         self.accept_null = kwargs.pop("null", False)
         self.accept_blank = kwargs.pop("blank", False)
         self.value = kwargs.value("value", -1)
@@ -65,5 +76,40 @@ class CharInput(AbstractInput):
                 
             self.set_run('value', value)
             return InputResponse(InputResponse.CONTINUE, None, value)
+        except Exception as e:
+            logger.exception(str(e))
+            
+            
+class TextInput(CharInput):
+    """
+    This input subclass the CharInput and changes the:
+        - null to True
+        - blank to True
+        - max_length to 4096 (the max length of one telegram message)
+    """
+    
+    def __init__(self, update:telegram.Update, dispatcher:telegram.ext.Dispatcher, *args, **kwargs):
+        kwargs['null'] = True
+        kwargs['blank'] = True
+        kwargs['max_length'] = 4096
+        
+        
+class EmailInput(CharInput):
+    """
+    This input is a subclass of the CharInput that only allows email addresses.
+    """
+    
+    EMAIL_RGX = re.compile("")
+    
+    def next(self, update:telegram.Update):
+        try:
+            self.text = self.get_text(update)
+            
+            if self.EMAIL_RGX.match(self.text):
+                self.set_error(_('Email not valid! Retry'))
+                return InputResponse(InputResponse.CONTINUE, NextResponse(self.name))
+            
+            self.set_run('value', self.text)
+            return InputResponse(InputResponse.CONTINUE, NextResponse(self.name))
         except Exception as e:
             logger.exception(str(e))

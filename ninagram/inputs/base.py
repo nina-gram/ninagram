@@ -60,13 +60,3 @@ class AbstractInput(State):
             
                         
             
-class UniqueSelectInput(SelectInput):
-    
-    def __init__(self, update:telegram.Update, dispatcher:telegram.ext.Dispatcher, *args, **kwargs):
-        super().__init__(update, dispatcher, *args, multiple=False, **kwargs)
-        
-        
-class MultipleSelectInput(SelectInput):
-    
-    def __init__(self, update:telegram.Update, dispatcher:telegram.ext.Dispatcher, *args, **kwargs):
-        super().__init__(update, dispatcher, *args, multiple=True, **kwargs)

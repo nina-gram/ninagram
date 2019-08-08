@@ -16,6 +16,15 @@ rgx_users = re.compile("\W?@(\w+)")
 class Message:
 
     type = None
+    
+
+class AllMessageHandler(telegram.ext.Handler):
+    
+    def check_update(self, update):
+        return True
+    
+    def handle_update(self, update, dispatcher):
+        self.callback(update, dispatcher)
 
 
 class InlineCommandHandler(telegram.ext.Handler):
@@ -274,6 +283,22 @@ class PhotoHandler(telegram.ext.Handler):
     def handle_update(self, update, dispatcher):
         self.callback(update, dispatcher)
         
+
+class DocumentHandler(telegram.ext.Handler):
+
+    def check_update(self, update):
+        try:
+            if update.message is not None and update.message.document is not None:
+                return True
+
+            return False
+        except Exception as e:
+            logger.exception(str(e))
+            return False
+
+    def handle_update(self, update, dispatcher):
+        self.callback(update, dispatcher)
+        
         
 class VideoHandler(telegram.ext.Handler):
 
@@ -296,6 +321,38 @@ class VideoNoteHandler(telegram.ext.Handler):
     def check_update(self, update):
         try:
             if update.message is not None and update.message.video_note is not None:
+                return True
+
+            return False
+        except Exception as e:
+            logger.exception(str(e))
+            return False
+
+    def handle_update(self, update, dispatcher):
+        self.callback(update, dispatcher)
+        
+        
+class ContactHandler(telegram.ext.Handler):
+
+    def check_update(self, update):
+        try:
+            if update.message is not None and update.message.contact is not None:
+                return True
+
+            return False
+        except Exception as e:
+            logger.exception(str(e))
+            return False
+
+    def handle_update(self, update, dispatcher):
+        self.callback(update, dispatcher)
+        
+        
+class LocationHandler(telegram.ext.Handler):
+
+    def check_update(self, update):
+        try:
+            if update.message is not None and update.message.location is not None:
                 return True
 
             return False
