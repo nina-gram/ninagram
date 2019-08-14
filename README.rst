@@ -37,7 +37,7 @@ NINAGRAM = {
     "WORKING_MODE": "polling",
 }
 
-then run your development server
-python manage.py runserver
+Then start the bot
+python manage.py startbot
 
 Please note that you should be connected to internet for the bot to work correctly

@@ -1,17 +1,17 @@
-from django.apps import AppConfig
+from django.core.management.base import BaseCommand, CommandError
+from django.contrib.auth import get_user_model
 from django.conf import settings
+from ninagram.bot import Bot
 
 
-class NinagramConfig(AppConfig):
-    name = 'ninagram'
+class Command(BaseCommand):
+    """Start the bot"""
     
-    def ready(self):
+    def handle(self, *args, **options):
+        print("Starting the bot...")
         
-        if not settings.NINAGRAM.get('AUTO_LAUNCH', False):
-            return
-    
         try:
-            from ninagram.bot import Bot
+            
             tokens = settings.NINAGRAM['TOKENS']
             self.ninabot  = Bot(tokens)
             self.ninabot.init(tokens)
@@ -23,7 +23,10 @@ class NinagramConfig(AppConfig):
                 elif settings.NINAGRAM['WORKING_MODE'].lower() == "webhook":
                     self.ninabot.start_webhook()
                 else:
-                    print("Working mode not recognised. We ignored it.")
+                    raise ValueError("Working mode not recognised. We ignored it.")
+                self.ninabot.idle()
         except Exception as e:
             import traceback
-            traceback.print_exc()
+            traceback.print_exc()        
+            
+        print("Successfully renewed all the User's sms")

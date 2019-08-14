@@ -166,6 +166,17 @@ class Bot:
         else:
             logger.info("Already started")
             
+    def idle(self):
+        try:
+            for token in self.tokens.values():
+                try:
+                    token['updater'].idle()
+                    break
+                except Exception as e:
+                    logger.exception(str(e))
+        except Exception as e:
+            logger.exception(str(e))
+            
     def install_accept_all(self):
         cmd = AllMessageHandler(generic_processor)
         for token in self.tokens.values():
