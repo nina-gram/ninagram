@@ -10,10 +10,10 @@ from loguru import logger
 from ninagram.inputs.base import AbstractInput
 
 
-class SelectInput(AbstractInput):
+class SelectField(TgField):
     
     def __init__(self, update:telegram.Update, dispatcher:telegram.ext.Dispatcher, *args, **kwargs):
-        super(SelectInput, self).__init__(update, dispatcher, *args, **kwargs)
+        super(SelectField, self).__init__(update, dispatcher, *args, **kwargs)
         self.choices = kwargs.get('choices', [])        
         self.multiple = kwargs.get('multiple', False)
         if self.multiple:
@@ -110,13 +110,13 @@ class SelectInput(AbstractInput):
             logger.exception(str(e))
             
             
-class UniqueSelectInput(SelectInput):
+class UniqueSelectField(SelectField):
     
     def __init__(self, update:telegram.Update, dispatcher:telegram.ext.Dispatcher, *args, **kwargs):
         super().__init__(update, dispatcher, *args, multiple=False, **kwargs)
         
         
-class MultipleSelectInput(SelectInput):
+class MultipleSelectField(SelectField):
     
     def __init__(self, update:telegram.Update, dispatcher:telegram.ext.Dispatcher, *args, **kwargs):
         super().__init__(update, dispatcher, *args, multiple=True, **kwargs)

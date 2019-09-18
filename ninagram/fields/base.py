@@ -3,19 +3,18 @@ import telegram
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from ninagram.state import State
 from ninagram.response import MenuResponse, NextResponse, InputResponse
+from django.forms.forms import Field
 from loguru import logger
-import calendar
-import datetime
 
 
-class AbstractInput(State):
+class TgField(State, Field):
     
     transitions = {'init':':1'}
     VALUES_TYPES = ('int', 'float', 'bool', 'string')
     
     def __init__(self, update:telegram.Update, dispatcher:telegram.ext.Dispatcher, *args, **kwargs):
         self.name = kwargs.pop('name', None)
-        super(AbstractInput, self).__init__(update, dispatcher, *args, **kwargs)
+        super(TgField, self).__init__(update, dispatcher, *args, **kwargs)
         
     def menu(self, update:telegram.Update):
         try:

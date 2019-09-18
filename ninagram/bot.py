@@ -1,9 +1,9 @@
 import telegram
 from ninagram.handlers import *
-from telegram.ext import MessageHandler, Filters
+from telegram.ext import MessageHandler, Filters, Dispatcher, CallbackContext
 from telegram import ParseMode
 from loguru import logger
-from .state import get_state
+from ninagram.states.base import get_state
 from .models import TgUser, User
 from .runtime import Runtime
 from .middlewares import SessionMiddleware
@@ -16,7 +16,7 @@ except:
     CAN_TRANSLATE = False
 
 
-def generic_processor(update: telegram.Update, dispatcher:telegram.ext.Dispatcher):
+def generic_processor(update: telegram.Update, dispatcher:Dispatcher, context:CallbackContext=None):
     try:
         if CAN_TRANSLATE:
             try:
@@ -29,15 +29,15 @@ def generic_processor(update: telegram.Update, dispatcher:telegram.ext.Dispatche
         try:
             sess = update.db.session
             logger.debug("last state is {}", sess.state)
-            prev_state = get_state(sess.state, update, dispatcher)
+            prev_state = get_state(sess.state, update, dispatcher, context=context)
             resp = prev_state.next(update)
-            state = get_state(resp.state, update, dispatcher)
+            state = get_state(resp.state, update, dispatcher, context=context)
             if resp.step:
                 state.set_step(resp.step)
-            logger.debug("new state is {}", state.name)
+            logger.debug("new state is {}", state)
         except Exception as e:
             logger.exception(str(e))
-            state = get_state("START", update, dispatcher)
+            state = get_state("START", update, dispatcher, context=context)
             return
         
         sess.state = state.name
@@ -55,7 +55,7 @@ def generic_processor(update: telegram.Update, dispatcher:telegram.ext.Dispatche
             logger.debug("after state is {}", sess.state)
         except Exception as e:
             logger.exception(str(e))
-            state = get_state("START", update, dispatcher)
+            state = get_state("START", update, dispatcher, context=context)
             resp = state.menu(update)
             sess.state = state.name
             sess.save_after()
@@ -111,11 +111,11 @@ class Bot:
                 logger.warning("token is not a string. Ignoring")
                 continue
             
-            bot = telegram.Bot(token)
-            updater = telegram.ext.Updater(token, request_kwargs=None)
+            # bot = telegram.Bot(token)
+            updater = telegram.ext.Updater(token, request_kwargs=None, use_context=True)
             dispatcher = updater.dispatcher
             job_queue = updater.job_queue
-            self.tokens[token] = {'bot':bot, 'updater':updater,
+            self.tokens[token] = {'bot':updater.bot, 'updater':updater,
                         'dispatcher':dispatcher, 'job_queue':job_queue}
             
             bot_id = token.split(':')[0]
@@ -135,14 +135,8 @@ class Bot:
             self.handlers['default'].append(cmd)            
         
         self.install_default_command_handler()
-        self.install_default_inline_command_handler()
         self.install_default_callback_query_handler()
-        #self.install_accept_all()
-        self.install_default_text_handler()
-        self.install_default_document_handler()
-        self.install_default_photo_handler()
-        self.install_default_contact_handler()
-        self.install_default_location_handler()
+        self.install_accept_all()
         
         self.started = False
         logger.info("self.started {}", self.started)
@@ -178,19 +172,21 @@ class Bot:
             logger.exception(str(e))
             
     def install_accept_all(self):
-        cmd = AllMessageHandler(generic_processor)
+        cmd = MessageHandler(telegram.ext.filters.Filters.all, generic_processor)
+        
+        for token in self.tokens.values():
+            dispatcher = token['dispatcher']
+            dispatcher.add_handler(cmd)
+            self.handlers['inline'].append(cmd)
+            
+    def install_message_filter(self, tg_filter:telegram.ext.filters.Filters):
+        cmd = MessageHandler(tg_filter, generic_processor)
+        
         for token in self.tokens.values():
             dispatcher = token['dispatcher']
             dispatcher.add_handler(cmd)
             self.handlers['inline'].append(cmd)        
-        
-        
-    def install_default_inline_command_handler(self):
-        cmd = InlineCommandHandler(generic_processor)
-        for token in self.tokens.values():
-            dispatcher = token['dispatcher']
-            dispatcher.add_handler(cmd)
-            self.handlers['inline'].append(cmd) 
+            
         
     def install_default_command_handler(self):
         cmd = CommandHandler(generic_processor)
@@ -199,50 +195,6 @@ class Bot:
             dispatcher.add_handler(cmd)
             self.handlers['command'].append(cmd) 
         
-    def install_default_text_handler(self):
-        cmd = TextHandler(generic_processor)
-        for token in self.tokens.values():
-            dispatcher = token['dispatcher']
-            dispatcher.add_handler(cmd)
-            self.handlers['command'].append(cmd) 
-        
-    def install_default_photo_handler(self):
-        cmd = PhotoHandler(generic_processor)
-        for token in self.tokens.values():
-            dispatcher = token['dispatcher']
-            dispatcher.add_handler(cmd)
-            self.handlers['command'].append(cmd)
-            
-    def install_default_document_handler(self):
-        cmd = DocumentHandler(generic_processor)
-        for token in self.tokens.values():
-            dispatcher = token['dispatcher']
-            dispatcher.add_handler(cmd)
-            self.handlers['command'].append(cmd)    
-            
-    def install_default_contact_handler(self):
-        cmd = ContactHandler(generic_processor)
-        for token in self.tokens.values():
-            dispatcher = token['dispatcher']
-            dispatcher.add_handler(cmd)
-            self.handlers['command'].append(cmd)    
-            
-    def install_default_location_handler(self):
-        cmd = LocationHandler(generic_processor)
-        for token in self.tokens.values():
-            dispatcher = token['dispatcher']
-            dispatcher.add_handler(cmd)
-            self.handlers['command'].append(cmd)        
-        
-    def install_default_video_handler(self):
-        cmd = VideoHandler(generic_processor)
-        self.dispatcher.add_handler(cmd)
-        self.handlers['video'].append(cmd)
-        
-    def install_default_videonote_handler(self):
-        cmd = VideoNoteHandler(generic_processor)
-        self.dispatcher.add_handler(cmd)
-        self.handlers['videonote'].append(cmd)    
         
     def install_default_callback_query_handler(self):
         cmd = CallbackQueryHandler(generic_processor)
@@ -250,11 +202,7 @@ class Bot:
             dispatcher = token['dispatcher']
             dispatcher.add_handler(cmd)
             self.handlers['query'].append(cmd) 
-        
-    def register_inline_command(self, callback):
-        cmd = InlineCommandHandler(callback)
-        self.dispatcher.add_handler(cmd)
-        self.handlers['inline'].append(cmd)
+
         
     def register_command(self, callback):
         cmd = CommandHandler(callback)

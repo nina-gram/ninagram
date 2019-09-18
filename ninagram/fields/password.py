@@ -10,7 +10,7 @@ from loguru import logger
 from ninagram.inputs.base import AbstractInput
 
 
-class PasswordInput(AbstractInput):
+class PasswordField(TgField):
     
     ASK_TWICE = True
     
@@ -85,7 +85,7 @@ class PasswordInput(AbstractInput):
             logger.exception(str(e))
             
             
-class NumericalPasswordInput(PasswordInput):
+class NumericalPasswordField(PasswordField):
     """
     This is a password input that prompt the user with numeric keypad and accept only numeric code as password.
     Its subclass PasswordInput.
@@ -142,7 +142,7 @@ class NumericalPasswordInput(PasswordInput):
             logger.exception(str(e))
             
             
-class AlphaPasswordInput(PasswordInput):
+class AlphaPasswordField(PasswordField):
     
     def next(self, update:telegram.Update):
         try:

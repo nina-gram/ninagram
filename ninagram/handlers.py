@@ -13,30 +13,16 @@ rgx_args = re.compile("\W?/(\w+)")
 rgx_users = re.compile("\W?@(\w+)")
 
 
-class Message:
-
-    type = None
-    
-
-class AllMessageHandler(telegram.ext.Handler):
-    
-    def check_update(self, update):
-        return True
-    
-    def handle_update(self, update, dispatcher):
-        self.callback(update, dispatcher)
-
-
-class InlineCommandHandler(telegram.ext.Handler):
+class CommandHandler(telegram.ext.Handler):
 
     rgx_parts = re.compile("^([%s])([a-zA-Z0-9]+)(@[a-zA-Z0-9_]+)?\s?(.*)?" %
                            (''.join(cmd_prefixes)), re.DOTALL)
 
-    def check_update(self, update):
+    def check_update(self, update: telegram.Update):
         logger.debug("checking this update")
+
         try:
             text = update.message.text if update.message != None else update.callback_query.data
-            logger.debug("pattern {}", self.rgx_parts.pattern)
             if text is None:
                 return False
 
@@ -47,59 +33,8 @@ class InlineCommandHandler(telegram.ext.Handler):
             cmd_prefix = match.group(1)
             command = match.group(2)
             rest = match.group(4)
-            logger.debug("matched {}", match.groups())
-
-            update.message.rest = rest
-            tags = rgx_tags.findall(rest)
-            args = rgx_args.findall(rest)
-            users = rgx_users.findall(rest)
-
-            update.message.tags = tags
-            update.message.args = args
-            update.message.users = users
-
-            update.type = "command"
-            update.message.command = command
-
-            try:
-                update.message.text = '%s%s %s' % (
-                    cmd_prefix, command, update.message.rest)
-            except:
-                update.message.text = command
-
-            return True
-
-        except:
-            import traceback
-            traceback.print_exc()
-            return False
-
-    def handle_update(self, update, dispatcher):
-        self.callback(update, dispatcher)
-
-
-class CommandHandler(telegram.ext.Handler):
-
-    rgx_parts = re.compile("^([%s])([a-zA-Z0-9]+)(@[a-zA-Z0-9_]+)?\s?(.*)?" %
-                           (''.join(cmd_prefixes)), re.DOTALL)
-
-    def check_update(self, update: telegram.Update):
-        logger.debug("checking this update")
-        if update.effective_chat.type != "private":
-            return False
-
-        try:
-            text = update.message.text if update.message != None else update.callback_query.data
-            if text is None:
-                return False
-
-            match = self.rgx_parts.search(text)
-            if not match:
-                return False
-
-            cmd_prefix = match.group(1)
-            command = match.group(2)
-            rest = match.group(3)
+            if rest is None:
+                rest = ""
 
             update.message.rest = rest
             tags = rgx_tags.findall(rest)
@@ -125,8 +60,8 @@ class CommandHandler(telegram.ext.Handler):
             traceback.print_exc()
             return False
 
-    def handle_update(self, update, dispatcher):
-        self.callback(update, dispatcher)
+    def handle_update(self, update, dispatcher, check_result, context=None):
+        self.callback(update, dispatcher, context=context)
 
 
 class CallbackQueryHandler(telegram.ext.Handler):
@@ -138,8 +73,8 @@ class CallbackQueryHandler(telegram.ext.Handler):
 
         return False
 
-    def handle_update(self, update, dispatcher):
-        self.callback(update, dispatcher)
+    def handle_update(self, update, dispatcher,check_result, context=None):
+        self.callback(update, dispatcher, context=context)
 
 
 class AddHandler(telegram.ext.Handler):

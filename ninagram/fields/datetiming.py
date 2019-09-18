@@ -9,7 +9,7 @@ import datetime
 from ninagram.inputs.base import AbstractInput
 
 
-class DateInput(AbstractInput):
+class DateField(TgField):
     
     def menu(self, update:telegram.Update):
         try:
@@ -156,7 +156,7 @@ class DateInput(AbstractInput):
         return message
         
         
-class CalendarInput(AbstractInput):
+class CalendarField(TgField):
     
     weekday_row = [] #Second row - Week Days
     for day in [_("Mo"),_("Tu"), _("We"), _("Th"), _("Fr"), _("Sa") , _("Su")]:
@@ -227,7 +227,7 @@ class CalendarInput(AbstractInput):
             logger.exception(str(e))
             
 
-class TimeInput(AbstractInput):
+class TimeField(TgField):
     
     def menu(self, update:telegram.Update):
         try:

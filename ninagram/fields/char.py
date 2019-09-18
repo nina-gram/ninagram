@@ -8,7 +8,7 @@ from ninagram.inputs.base import AbstractInput
 import re
 
 
-class CharInput(AbstractInput):
+class CharField(TgField):
     """
     This input should be used for short string.
     
@@ -27,7 +27,7 @@ class CharInput(AbstractInput):
         self.value = kwargs.value("value", -1)
         if self.value != -1:
             self.set_run('value', value)
-        super(CharInput, self).__init__(update, dispatcher, *args, **kwargs)
+        super(CharField, self).__init__(update, dispatcher, *args, **kwargs)
         
     def menu(self, update:telegram.Update):
         try:
@@ -80,7 +80,7 @@ class CharInput(AbstractInput):
             logger.exception(str(e))
             
             
-class TextInput(CharInput):
+class TextField(CharField):
     """
     This input subclass the CharInput and changes the:
         - null to True
@@ -94,7 +94,7 @@ class TextInput(CharInput):
         kwargs['max_length'] = 4096
         
         
-class EmailInput(CharInput):
+class EmailField(CharField):
     """
     This input is a subclass of the CharInput that only allows email addresses.
     """
