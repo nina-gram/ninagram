@@ -8,7 +8,8 @@ class MenuResponse:
     """
     
     def __init__(self, message, markup=None, edit=False, force_return=True, parse_mode=None, 
-                 edit_inline_callback=True, reply=False):
+                 edit_inline_callback=True, reply=False, auto_delete=False, 
+                 dispatcher:telegram.ext.Dispatcher=None):
         self.message = message
         self.markup = markup
         self.edit = edit
@@ -16,6 +17,8 @@ class MenuResponse:
         self.edit_inline_callback = edit_inline_callback
         self.force_return = force_return
         self.reply = reply
+        self.auto_delete = auto_delete
+        self.dispatcher = dispatcher
         
     def apply(self, update:telegram.Update):
         """
@@ -60,9 +63,22 @@ class MenuResponse:
             msg = bot.sendMessage(chatid, self.message, parse_mode=self.parse_mode,
                                   reply_markup=self.markup, reply_to_message_id=reply_to_id)
             all_send_msg.append(msg)
+            
+            if self.auto_delete:
+                self.auto_delete = int(self.auto_delete)
+                self.all_send_msg = all_send_msg            
+                self.dispatcher.job_queue.run_once(self.delete, self.auto_delete)
+                
             return all_send_msg
         except Exception as e:
             logger.exception(str(e))
+            
+    def delete(self, *args, **kwargs):
+        for msg in self.all_send_msg:
+            try:
+                self.dispatcher.bot.delete_message(msg.chat.id, msg.message_id)
+            except Exception as e:
+                logger.exception(str(e))
             
             
 class NextResponse:

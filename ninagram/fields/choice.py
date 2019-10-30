@@ -4,7 +4,6 @@ This module contains classes for handling with Select/Choice inputs
 from django.utils.translation import gettext as _
 import telegram
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-from ninagram.state import State
 from ninagram.response import MenuResponse, NextResponse, InputResponse
 from loguru import logger
 from ninagram.inputs.base import AbstractInput

@@ -1,12 +1,11 @@
 from django.utils.translation import gettext as _
 import telegram
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-from ninagram.state import State
 from ninagram.response import MenuResponse, NextResponse, InputResponse
 from loguru import logger
 import calendar
 import datetime
-from ninagram.inputs.base import AbstractInput
+from ninagram.fields.base import TgField
 
 
 class DateField(TgField):
@@ -117,7 +116,8 @@ class DateField(TgField):
             day = self.get_run('day', None)            
                         
             if self.text.lower() == "ok":
-                value = {'year':year, 'month':month, 'day':day}
+                value = datetime.date(year=int(year), month=int(month), 
+                                      day=int(day))
                 return InputResponse(InputResponse.STOP, None, value)
             
             if self.text.lower() == "clear":
@@ -174,7 +174,7 @@ class CalendarField(TgField):
             keyboard = []
             # First row - Month and Year
             keyboard.append([InlineKeyboardButton(calendar.month_name[month]+" "+str(year),callback_data=data_ignore)])
-            keyboard.append(CalendarInput.weekday_row)
+            keyboard.append(CalendarField.weekday_row)
             my_calendar = calendar.monthcalendar(year, month)
             for week in my_calendar:
                 row=[]
@@ -209,7 +209,8 @@ class CalendarField(TgField):
             if action == "IGNORE":
                 pass
             elif action == "DAY":
-                value = {'year':int(year), 'month':int(month), 'day':int(day)}
+                value = datetime.date(year=int(year), month=int(month), 
+                                      day=int(day))
                 return InputResponse(InputResponse.STOP, None, value)
             elif action == "PREV-MONTH":
                 pre = curr - datetime.timedelta(days=1)

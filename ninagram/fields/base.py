@@ -1,7 +1,7 @@
 from django.utils.translation import gettext as _
 import telegram
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-from ninagram.state import State
+from ninagram.states.base import State
 from ninagram.response import MenuResponse, NextResponse, InputResponse
 from django.forms.forms import Field
 from loguru import logger

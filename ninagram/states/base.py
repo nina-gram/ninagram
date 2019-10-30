@@ -2,7 +2,6 @@
 from ninagram.runtime import *
 from ninagram.models import Message, User, Group
 from ninagram.cache import save_this
-from ninagram.auth import *
 from ninagram.response import MenuResponse, NextResponse
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
 from telegram.ext import CallbackContext, Dispatcher
@@ -31,14 +30,10 @@ class AbstractState:
     menu_display = "bottom"
     # a table (dictionary) of transitions
     transitions = {}
-    # a dict that matchs some text or emoji to add before a menu item
-    pre_item = {}
-    # a dict that matchs some text or emoji to add after a menu item
-    post_item = {}
+
     # the callback to validate the pass for unlocking
     __unlock_callback = None
-    # don't generate buttons for these transitions
-    no_buttons = []
+
     # if you want to restore a state after the current state
     restore_state = None
     # transitions for commands
@@ -56,6 +51,8 @@ class AbstractState:
         self.update = update
         self.dispatcher = dispatcher
         self.text = self.get_text()
+        # if the state is running as a hook or not
+        self.as_hook = kwargs.get('as_hook', False)
             
     def set_run(self, key, value):
         self.__runtime.set(self.user_id, self.chat_id, self.name, key, value)
@@ -152,22 +149,47 @@ class AbstractState:
     def get_cache(self, model_name, pkid):
         return self.__runtime.get_cache(model_name, pkid)
         
-    def validate_access(self, update:telegram.Update):
-        """Validate if the current user and chat are authorized to access this STATE"""
+    def validate_access(self, update:telegram.Update, menu=None, group=None):
+        """Authorize the current updated to be processed.  
+        It searches for authentication classes that will return (True, X)  
+        for the update. To do this it start by querying all the instances  
+        in `authorization_instances`["all"] then the instances specific  
+        to the current step.
+        Params:
+            - menu: True if the caller is `self.menu()`
+            - group: True if the update comes from a group"""
+        
         step = self.get_step()
+        if menu:
+            method_name = 'menu'
+        else:
+            method_name = 'next'
         
-        for auth_instance in self.authorization_instances["all"]:
-            res = auth_instance.check(update)
-            if res is False:
-                return False
+        if group:
+            method_name += '_group'
             
-        if step in self.authorization_instances:
+        allowed = True
+        res = None
+                    
+        # we search for an instance that will return (True, X)
+        if len(self.authorization_instances["all"]) > 0:
+            for auth_instance in self.authorization_instances["all"]:
+                allowed, res = getattr(auth_instance, method_name)(update)
+                if allowed:
+                    break
+            else:
+                # we didn't found so the update is globally unauthorized
+                return (allowed, res)
+            
+        # we see there is autho instances for this step
+        if step in self.authorization_instances and \
+           len(self.authorization_instances) > 0:
             for auth_instance in self.authorization_instances[step]:
-                res = auth_instance.check(update)
-                if res is False :
-                    return False
+                allowed, res = getattr(auth_instance, method_name)(update)
+                if allowed :
+                    break
         
-        return True
+        return (allowed, res)
     
     def get_text(self, update=None):
         if update is None:
@@ -196,22 +218,18 @@ class AbstractState:
         if update.effective_chat.type == "group" or update.effective_chat.type == "supergroup":
             return self.next_group(update)
         
-        if not self.validate_access(update):
-            # we try setting the step in the case we
-            try:
-                res = self.next_from_class_data(update)
-                if res:
-                    return res
-            except:
-                pass
-            state = self.restore_state if self.restore_state != None else self.name
-            return NextResponse(state, step=1)
+        # check if the update is authorized
+        allowed, res = self.validate_access(update)
+        if not allowed:
+            return res
         
         step = self.get_step()
             
         try:
             res = self.pre_next(update)
             if res and res.force_return == True:
+                if self.as_hook:
+                    return self.return_as_hook(res)
                 return res              
         except Exception as e:
             logger.exception(str(e))
@@ -227,6 +245,8 @@ class AbstractState:
             
             res = pre_step_method(update)
             if res and res.force_return == True:
+                if self.as_hook:
+                    return self.return_as_hook(res)                
                 return res
         except StepNotFoundException:
             pass
@@ -243,6 +263,8 @@ class AbstractState:
             
             res = step_method(update)
             if res:
+                if self.as_hook:
+                    return self.return_as_hook(res)                
                 return res
         except StepNotFoundException:
             pass        
@@ -269,16 +291,10 @@ class AbstractState:
         Then it calls the user defined method for the current step.
         This method is called only if the message come from a group"""
         
-        if not self.validate_access(update):
-            # we try setting the step in the case we
-            try:
-                res = self.next_from_class_data(update)
-                if res:
-                    return res
-            except:
-                pass
-            state = self.restore_state if self.restore_state != None else self.name
-            return NextResponse(state, step=1)
+        # check if the update is authorized
+        allowed, res = self.validate_access(update, group=True)
+        if not allowed:
+            return res
         
         step = self.get_step()
         
@@ -286,6 +302,8 @@ class AbstractState:
         try:
             res = self.pre_next_group(update)
             if res and res.force_return == True:
+                if self.as_hook:
+                    return self.return_as_hook(res)                
                 return res
         except Exception as e:
             logger.exception(str(e))
@@ -300,6 +318,8 @@ class AbstractState:
             
             res = pre_step_method(update)
             if res and res.force_return == True:
+                if self.as_hook:
+                    return self.return_as_hook(res)                
                 return res            
         except StepNotFoundException:
             pass        
@@ -316,6 +336,8 @@ class AbstractState:
             
             res = step_method(update)
             if res:
+                if self.as_hook:
+                    return self.return_as_hook(res)                
                 return res
         except StepNotFoundException:
             pass        
@@ -353,8 +375,10 @@ class AbstractState:
         if update.effective_chat.type == "group" or update.effective_chat.type == "supergroup":
             return self.menu_group(update)
         
-        if not self.validate_access(update):
-            return self.step_X_menu(update)        
+        # check if the update is authorized
+        allowed, res = self.validate_access(update, menu=True)
+        if not allowed:
+            return res
         
         step = self.get_step()        
                 
@@ -362,6 +386,8 @@ class AbstractState:
         try:
             res = self.pre_menu(update)
             if res and res.force_return == True:
+                if self.as_hook:
+                    return self.return_as_hook(res)                
                 return res
         except AttributeError:
             pass        
@@ -379,6 +405,8 @@ class AbstractState:
             
             res = pre_step_method(update)
             if res and res.force_return == True:
+                if self.as_hook:
+                    return self.return_as_hook(res)                
                 return res
         except StepNotFoundException:
             pass                
@@ -395,6 +423,8 @@ class AbstractState:
             
             res = step_method(update)
             if res:
+                if self.as_hook:
+                    return self.return_as_hook(res)                
                 return res        
         except StepNotFoundException:
             pass        
@@ -418,8 +448,10 @@ class AbstractState:
         loads the default pre_menu method.
         Then it calls the user implementation of menu method for the current step"""
         
-        if not self.validate_access(update):
-            return self.step_X_menu_group(update)        
+        # check if the update is authorized
+        allowed, res = self.validate_access(update, menu=True, group=True)
+        if not allowed:
+            return res
         
         step = self.get_step()
         logger.info("step {}", step)
@@ -428,6 +460,8 @@ class AbstractState:
         try:
             res = self.pre_menu_group(update)
             if res and res.force_return == True:
+                if self.as_hook:
+                    return self.return_as_hook(res)                
                 return res
         except Exception as e:
             logger.exception(str(e))
@@ -444,6 +478,8 @@ class AbstractState:
             
             res = pre_step_method(update)
             if res and res.force_return == True:
+                if self.as_hook:
+                    return self.return_as_hook(res)                
                 return res 
         except StepNotFoundException:
             pass        
@@ -461,6 +497,8 @@ class AbstractState:
             
             res = step_method(update)
             if res:
+                if self.as_hook:
+                    return self.return_as_hook(res)                
                 return res
         except StepNotFoundException:
             pass
@@ -490,6 +528,8 @@ class AbstractState:
         try:
             res = self.pre_post(update, tg_message)
             if res:
+                if self.as_hook:
+                    return self.return_as_hook(res)                
                 return res                
         except Exception as e:
             logger.exception(str(e))
@@ -504,6 +544,8 @@ class AbstractState:
             
             res = pre_step_method(update, tg_message)
             if res:
+                if self.as_hook:
+                    return self.return_as_hook(res)                
                 return res
         except StepNotFoundException:
             pass        
@@ -518,6 +560,8 @@ class AbstractState:
             
             res = step_method(update, tg_message)
             if res:
+                if self.as_hook:
+                    return self.return_as_hook(res)                
                 return res
         except StepNotFoundException:
             pass        
@@ -540,6 +584,8 @@ class AbstractState:
         try:
             res = self.pre_post_group(update, tg_message)
             if res:
+                if self.as_hook:
+                    return self.return_as_hook(res)                
                 return res
         except Exception as e:
             logger.exception(str(e))
@@ -553,6 +599,8 @@ class AbstractState:
             
             res = pre_step_method(update, tg_message)
             if res:
+                if self.as_hook:
+                    return self.return_as_hook(res)                
                 return res
         except StepNotFoundException:
             pass        
@@ -567,11 +615,20 @@ class AbstractState:
             
             res = step_method(update, tg_message)
             if res:
+                if self.as_hook:
+                    return self.return_as_hook(res)                
                 return res
         except StepNotFoundException:
             pass        
         except Exception as e:
-            logger.exception(str(e))                
+            logger.exception(str(e))        
+            
+    def return_as_hook(self, res):
+        from ninagram.response import InputResponse
+        if isinstance(res, InputResponse):
+            return res
+        else:
+            return InputResponse(InputResponse.CONTINUE, menu_response=res)
         
     def pre_post_group(self, update: telegram.Update, tg_message:telegram.Message):
         """This method is called before the user defined next method for the current step.
@@ -911,6 +968,7 @@ class register_step:
 
     def __set_name__(self, owner, name):
         res = self.RGX.search(name)
+        self.owner = owner
         if res:
             step = res.group(1)
             step_names = res.group(2).split("_")
@@ -932,3 +990,9 @@ class register_step:
         except:            
             traceback.print_exc()
              
+    def __call__(self, update, *args, **kwargs):
+        instance = kwargs.pop('instance')
+        split_name = self.fn.__name__.split('_')
+        del split_name[-2]
+        meth_name = '_'.join(split_name)
+        return getattr(instance, meth_name)(update, *args, **kwargs)
