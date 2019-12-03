@@ -29,4 +29,4 @@ class Command(BaseCommand):
             import traceback
             traceback.print_exc()        
             
-        print("Successfully renewed all the User's sms")
+        print("Gracefully exit")

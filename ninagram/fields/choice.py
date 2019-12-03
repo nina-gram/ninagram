@@ -6,7 +6,8 @@ import telegram
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from ninagram.response import MenuResponse, NextResponse, InputResponse
 from loguru import logger
-from ninagram.inputs.base import AbstractInput
+from ninagram.fields.base import TgField
+from django.db.models import Model
 
 
 class SelectField(TgField):
@@ -20,19 +21,23 @@ class SelectField(TgField):
         else:
             self.selected = kwargs.get('selected', None)
         self.offset = kwargs.get('offset', 10)
+        self.return_on_click = kwargs.get('return_on_click', False)
         self.initial = self.selected
         
     def menu(self, update:telegram.Update):
         try:
             message = _("Please select a {}".format(self.name))
             replies = []
-            start = self.get_run('start', 0, insert=True)
+            start = self.get_run('sf-start', 0, insert=True)
             
             real_start = start * self.offset
             real_end = real_start + self.offset
             for row in self.choices[real_start:real_end]:
                 if isinstance(row, tuple):
                     text, value = row
+                elif isinstance(row, Model):
+                    text = str(row)
+                    value = str(row.id)
                 else:
                     text = value = row
                     
@@ -93,8 +98,12 @@ class SelectField(TgField):
             action, value = self.text.split("::")
             
             if action.lower() == "nav":
-                self.set_run('start', int(value))
+                self.set_run('sf-start', int(value))
             elif action.lower() == "value":
+                # if we should return on click then we do so
+                if self.return_on_click:
+                    return InputResponse(InputResponse.STOP, None, value)
+                
                 if self.multiple:
                     self.selected.append(value)
                 else:

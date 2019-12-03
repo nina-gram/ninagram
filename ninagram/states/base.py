@@ -53,6 +53,8 @@ class AbstractState:
         self.text = self.get_text()
         # if the state is running as a hook or not
         self.as_hook = kwargs.get('as_hook', False)
+        
+        logger.debug("STATE {}", self)
             
     def set_run(self, key, value):
         self.__runtime.set(self.user_id, self.chat_id, self.name, key, value)

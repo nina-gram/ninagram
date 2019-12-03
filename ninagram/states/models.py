@@ -1,11 +1,16 @@
-from ninagram.states.base import AbstractState
+from ninagram.states.base import AbstractState, register_step
 from django.forms.models import *
+from django.db.models import Model
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from ninagram.response import MenuResponse, NextResponse, InputResponse
+from ninagram.fields.choice import UniqueSelectField
+from django.utils.translation import gettext as _
 
 
 class AbstractStateModel(AbstractState):
     
     # the model to be used
-    Model = None
+    model:Model = None
     # the columns of the Model to be used
     columns = []
     # the columns to be printed on row list
@@ -13,16 +18,20 @@ class AbstractStateModel(AbstractState):
     # the input type supported by this state, one or step
     add_input = 'one'
     # the separator of input type when add_input is one
-    sep = '\n\n'
-    transitions = {'add':':2', 'list':':3', 'show':':4', 'del':':5', 'mod':':6'}
     
-    def step_1_menu(self, update: telegram.Update):
-        message = "{{first_name}}, you can manage %s here! Choose an option:" % (self.Model()._meta.verbose_name)
-        msg, kbd = self.menu_from_class_data(update, msg=message)
-        self.set_return(True)
-        return msg, kbd
+    transitions = {'start':'START'}
+    number_items = 9
     
-    def step_2_menu(self, update: telegram.Update):
+    @register_step
+    def step_1_home_menu(self, update: Update):
+        message = _("What do you want to do?")
+        replies = [[InlineKeyboardButton(_("Add"), callback_data="add"),
+                    InlineKeyboardButton(_("List"), callback_data="list")]]
+        kbd = InlineKeyboardMarkup(replies)
+        return MenuResponse(message, kbd)
+    
+    @register_step
+    def step_2_add_menu(self, update: Update):
         if self.add_input == 'one':
             res = self.add_one(update.message.rest)
         else:
@@ -37,57 +46,63 @@ class AbstractStateModel(AbstractState):
         self.set_return(True)
         return msg, kbd
     
-    def step_3_menu(self, update: telegram.Update):
-        fmt_str = "%s - " * len(self.list_columns)
-        fmt_str = fmt_str[:-3]
-        fmt_str = "#%s. "+fmt_str+"\n"
-        message = "List of %s:\n\n" % (self.Model()._meta.verbose_name_plural)
+    @register_step
+    def step_3_list_menu(self, update: Update):
         
-        rows = self.get_cache(self.Model.__name__, 'rows')
-        if rows is None:            
-            rows = self.Model.objects.all()
-            self.set_cache(self.Model.__name__, 'rows', rows)
+        Hook_instance = self.get_hook()
+        if not Hook_instance:
+            queryset = self.get_queryset(update)
+            offset = self.get_number_items(update)
             
-        count = len(rows)
-        offset = self.get_run('offset', 0, insert=True)
-        replies = []
-        
-        for row in rows[offset:offset+10]:
-            param = [getattr(row, col) for col in self.list_columns]
-            replies.append[InlineKeyboardButton(fmt_str % tuple(param), callback_data=str(row.id))]
-            message += fmt_str % tuple(param)
-        
-        prev_next_btns = []
-        if offset > 0:
-            prev_next_btns.append(InlineKeyboardButton('⏪ Prev', callback_data='prev'))
-        if offset + 10 < count:
-            prev_next_btns.append(InlineKeyboardButton('Next ⏩', callback_data='next'))
+            ctx = {'name':str(self.model), 'offset':offset,
+                   'choices':queryset, 'return_on_click':True}
+            Hook_instance = UniqueSelectField(update, self.dispatcher, **ctx)
+            self.install_hook(Hook_instance)
             
-        if len(prev_next_btns):
-            replies.append(prev_next_btns)
+        res = Hook_instance.menu(update)
+        if res.status == InputResponse.CONTINUE:
+            return res.menu_response
+        elif res.status == InputResponse.ABORT:
+            return MenuResponse("Aborted")
+        
+    def step_3_list_next(self, update:Update):
+        Hook_instance = self.get_hook()
+        if not Hook_instance:
+            queryset = self.get_queryset(update)
+            offset = self.get_number_items(update)
             
-        replies.append([InlineKeyboardButton('⬅️ Back', callback_data='menu')])
-        kbd = InlineKeyboardMarkup(replies)
+            ctx = {'name':str(self.model), 'offset':offset,
+                   'choices':queryset, 'return_on_click':True}
+            Hook_instance = UniqueSelectField(update, self.dispatcher, **ctx)    
+            self.install_hook(Hook_instance)
+            
+        res = Hook_instance.next(update)
+        if res.status == InputResponse.CONTINUE:
+            return NextResponse(self.name)
+        elif res.status == InputResponse.STOP:
+            if res.value:
+                self.set_run('pk', res.value)
+                Hook_instance = None
+                del Hook_instance
+                self.install_hook(None)
+                return NextResponse(self.name, 'detail')
+            else:
+                return NextResponse(self.name, 'home')
+        else:
+            Hook_instance = None
+            del Hook_instance
+            self.install_hook(None)            
+            return NextResponse(self.name, 'home')
         
-        self.set_return(True)
-        return message, kbd
-    
-    def step_4_menu(self, update: telegram.Update):
-        try:
-            if len(update.message.tags) < 1:
-                self.set_return(True)
-                return "Please send an id via a hashtag #id", None
-        except Exception as e:
-            self.set_return(True)
-            return str(e), None
-        
-        #show_id = int(update.message.tags[0])
-        #row = self.Model.objects.get(pk=show_id)
-        instance = self.get_run('instance', None)
+    @register_step
+    def step_4_detail_menu(self, update: Update):        
+        pk = self.get_run('pk', None)        
+        instance = self.model.objects.get(pk=pk)
         if instance:
-            message = "Details about this %s\n\n" % (instance._meta.verbose_name)
-            for col in self.columns:
-                message += "%s: %s\n" % (col, str(getattr(row, col)))
+            message = "%s details\n\n" % (instance._meta.verbose_name)
+            fields = [field.name for field in self.model._meta.get_fields()]
+            for col in fields:
+                message += "%s: %s\n" % (col, str(getattr(instance, col)))
                 
             replies = [[InlineKeyboardButton("Del", callback_data='del'), InlineKeyboardButton('Modify', callback_data='mod')]]
             replies.append([InlineKeyboardButton('Home', callback_data='menu'), InlineKeyboardButton('Back to List', callback_data='list')])
@@ -96,60 +111,39 @@ class AbstractStateModel(AbstractState):
             message = "No item selected\n"
             kbd = InlineKeyboardMarkup([[InlineKeyboardButton('Back', callback_data='menu')]])
         
-        self.set_return(True)
-        return msg, kbd    
+        return MenuResponse(message, kbd)
         
-    def step_5_menu(self, update: telegram.Update):
-        instance = self.get_run('instance', None)
-        if instance:
-            instance.delete()
-            self.set_run('instance', None)
-            message = "I succcessfully deleted the %s" % (self.Model()._meta.verbose_name)
+    @register_step
+    def step_5_del_menu(self, update: Update):
+        pk = self.get_run('pk', None)        
+        instance = self.model.objects.get(pk=pk)
+        deleted = self.get_run('deleted', False)
+        if deleted:
+            message = _("{} object deleted").format(self.model._meta.verbose_name)
+            replies = [[InlineKeyboardButton('Back', callback_data='list')]]
         else:
-            message = "No item selected"
+            error = self.get_error()
+            message = _("Do you really want to delete {} ?").format(instance)
+            if error:
+                message += _("\n\nError: {}").format(error)
+            replies = [[InlineKeyboardButton(_("Yes"), callback_data="yes"),
+                        InlineKeyboardButton(_("No"), callback_data="detail")]]
+        
+        kbd = InlineKeyboardMarkup(replies)
+        return MenuResponse(message, kbd)
+    
+    def step_5_del_next(self, update:Update):
+        if self.text == "yes":
+            pk = self.get_run('pk', None)        
+            instance = self.model.objects.get(pk=pk)
+            self.set_run('pk', None)
+            self.set_run('deleted', True)
             
-        kbd = InlineKeyboardMarkup([[InlineKeyboardButton('Back', callback_data='menu')]])
-        self.set_return(True)
-        return message, kbd
+        return NextResponse(self.name)
     
-    def step_0_menu_group(self, update):
-        args = ['/'+arg for arg in self.transitions if ':' in self.transitions[arg]]
-        message = "Help: Use the inline command /%s\n" % (self.name.lower())
-        message += "Arguments: %s\n\n" % " , ".join(args)
-        message += "Example: /%s /list" % (self.name.lower())
-        return message    
     
-    def step_1_menu_group(self, update):
-        msg, kbd = self.step_1_menu(update)
-        return msg, None
+    def get_queryset(self, update:Update):
+        return self.model.objects.all()
     
-    def step_2_menu_group(self, update):
-        msg, kbd = self.step_2_menu(update)
-        return msg, None
-    
-    def step_3_menu_group(self, update):
-        msg, kbd = self.step_3_menu(update)
-        return msg, kbd
-    
-    def step_4_menu_group(self, update):
-        msg, kbd = self.step_4_menu(update)
-        return msg, None
-    
-    def step_5_menu_group(self, update):
-        msg, kbd = self.step_5_menu(update)
-        return msg, None
-    
-    def add_one(self, text):
-        values = [line.strip() for line in text.split(self.sep)]
-        values[0] = values[0].split('\n')[1]
-        logger.debug('values: {}', values)
-        row = self.Model()
-        for i in range(len(self.columns)):
-            col = self.columns[i]
-            val = values[i]
-            setattr(row, col, val)
-        row.save()            
-        return True
-    
-    def add_step(self, value):
-        pass
+    def get_number_items(self, update:Update):
+        return self.number_items

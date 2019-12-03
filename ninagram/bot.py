@@ -8,6 +8,8 @@ from .models import TgUser, User
 from .runtime import Runtime
 from .middlewares import SessionMiddleware
 import importlib
+from threading import Thread
+from django.shortcuts import reverse
     
 try:
     from django.utils import translation
@@ -17,58 +19,64 @@ except:
 
 
 def generic_processor(update: telegram.Update, dispatcher:Dispatcher, context:CallbackContext=None):
-    try:
-        if CAN_TRANSLATE:
+    
+    def internal(update:telegram.Update, dispatcher:Dispatcher, context:CallbackContext):
+        try:
+            if CAN_TRANSLATE:
+                try:
+                    lang = update.db.chat.lang
+                    translation.activate(lang)
+                    logger.debug("we are setting lang {}", lang)
+                except Exception as e:
+                    logger.exception(str(e))
+                    
             try:
-                lang = update.db.chat.lang
-                translation.activate(lang)
-                logger.debug("we are setting lang {}", lang)
+                sess = update.db.session
+                logger.debug("last state is {}", sess.state)
+                prev_state = get_state(sess.state, update, dispatcher, context=context)
+                resp = prev_state.next(update)
+                state = get_state(resp.state, update, dispatcher, context=context)
+                if resp.step:
+                    state.set_step(resp.step)
+                logger.debug("new state is {}", state)
             except Exception as e:
                 logger.exception(str(e))
-                
-        try:
-            sess = update.db.session
-            logger.debug("last state is {}", sess.state)
-            prev_state = get_state(sess.state, update, dispatcher, context=context)
-            resp = prev_state.next(update)
-            state = get_state(resp.state, update, dispatcher, context=context)
-            if resp.step:
-                state.set_step(resp.step)
-            logger.debug("new state is {}", state)
-        except Exception as e:
-            logger.exception(str(e))
-            state = get_state("START", update, dispatcher, context=context)
-            return
-        
-        sess.state = state.name
-        # note that we save the session in the Saver thread to avoid
-        # waiting for database writes
-        sess.save_after()
-        
-        try:
-            resp = state.menu(update)
-            if state.restore_state:
-                sess.state = state.restore_state
-            else:
-                sess.state = state.name
-            sess.save_after(force_update=True)
-            logger.debug("after state is {}", sess.state)
-        except Exception as e:
-            logger.exception(str(e))
-            state = get_state("START", update, dispatcher, context=context)
-            resp = state.menu(update)
+                state = get_state("START", update, dispatcher, context=context)
+                return
+            
             sess.state = state.name
+            # note that we save the session in the Saver thread to avoid
+            # waiting for database writes
             sess.save_after()
             
-        all_msg = resp.apply(update)
-        
-        try:
-            for msg in all_msg:
-                state.post(update, msg)
+            try:
+                resp = state.menu(update)
+                if state.restore_state:
+                    sess.state = state.restore_state
+                else:
+                    sess.state = state.name
+                sess.save_after(force_update=True)
+                logger.debug("after state is {}", sess.state)
+            except Exception as e:
+                logger.exception(str(e))
+                state = get_state("START", update, dispatcher, context=context)
+                resp = state.menu(update)
+                sess.state = state.name
+                sess.save_after()
+                
+            all_msg = resp.apply(update)
+            
+            try:
+                for msg in all_msg:
+                    state.post(update, msg)
+            except Exception as e:
+                logger.exception(str(e))
         except Exception as e:
-            logger.exception(str(e))
-    except Exception as e:
-            logger.exception(str(e))
+                logger.exception(str(e))
+                
+    t = Thread(target=internal, args=(update, dispatcher, context))
+    t.setDaemon(True)
+    t.start()
         
 
 class Bot:
@@ -107,6 +115,9 @@ class Bot:
             self.tokens = {}
         
         for token in tokens:
+            if token in self.tokens:
+                continue
+            
             if not isinstance(token, str):
                 logger.warning("token is not a string. Ignoring")
                 continue
@@ -159,6 +170,27 @@ class Bot:
                     logger.exception(str(e))
         else:
             logger.info("Already started")
+            
+    def start_webhook(self):
+        if  not hasattr(self, 'started'):
+            logger.info("Can't initialize")
+            return
+            
+        if not self.started:
+            logger.info("{}", settings.NINAGRAM['STATES_MODULES'])
+            for module in settings.NINAGRAM['STATES_MODULES']:
+                logger.info("Importing {}", module)
+                importlib.import_module(module)
+                
+            for token, dict_token in self.tokens.items():
+                try:
+                    url = "https://" + settings.NINAGRAM["DOMAIN"] +\
+                        reverse('ninagram-webhook', kwargs={'token':token})
+                    dict_token['bot'].set_webhook(url)
+                except Exception as e:
+                    logger.exception(str(e))
+        else:
+            logger.info("Already started")        
             
     def idle(self):
         try:
