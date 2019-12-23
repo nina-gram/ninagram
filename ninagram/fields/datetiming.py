@@ -193,8 +193,19 @@ class CalendarField(TgField):
             row.append(InlineKeyboardButton(">",callback_data=self.create_callback_data("NEXT-MONTH",year,month,0)))
         
             keyboard.append(row)
+            keyboard.append([InlineKeyboardButton(_("OK"), callback_data="**ok**"),
+                             InlineKeyboardButton(_("Cancel"), callback_data="**cancel**")])
+            
+            message = self.get_label(update)
+            message = self.get_label(update)
+            message += "\n\n" + self.get_current_value(update)
+            
+            error = self.get_error()
+            if error:
+                message += "\n\n" + error            
+            
             kbd = InlineKeyboardMarkup(keyboard)
-            return InputResponse(InputResponse.CONTINUE, MenuResponse(self.name, markup=kbd), None)
+            return InputResponse(InputResponse.CONTINUE, MenuResponse(message, markup=kbd), None)
         except Exception as e:
             logger.exception(str(e))
         
@@ -204,6 +215,15 @@ class CalendarField(TgField):
     def next(self, update:telegram.Update):
         try:
             self.text = self.get_text(update)
+            
+            if self.text == '**ok**':
+                value = self.get_run('value', None)
+                self.set_run('value', None)
+                return InputResponse(InputResponse.STOP, None, value=value)
+            elif self.text == '**cancel**':
+                return InputResponse(InputResponse.ABORT)
+            
+            
             (action, year, month, day) = self.text.split("::")
             curr = datetime.datetime(int(year), int(month), 1)
             if action == "IGNORE":
@@ -211,7 +231,11 @@ class CalendarField(TgField):
             elif action == "DAY":
                 value = datetime.date(year=int(year), month=int(month), 
                                       day=int(day))
-                return InputResponse(InputResponse.STOP, None, value)
+                if self.return_on_click:
+                    return InputResponse(InputResponse.STOP, None, value)
+                else:
+                    self.set_run('value', value)
+                    return InputResponse(InputResponse.CONTINUE)
             elif action == "PREV-MONTH":
                 pre = curr - datetime.timedelta(days=1)
                 self.set_run('month', pre.month)

@@ -44,7 +44,6 @@ class AbstractState:
     __runtime = Runtime()
     
     def __init__(self, update: telegram.Update, dispatcher:Dispatcher, *args, **kwargs):
-        super(AbstractState, self).__init__()        
         assert len(self.transitions) > 0            
         self.user_id = update.effective_user.id
         self.chat_id = update.effective_chat.id
@@ -54,7 +53,10 @@ class AbstractState:
         # if the state is running as a hook or not
         self.as_hook = kwargs.get('as_hook', False)
         
-        logger.debug("STATE {}", self)
+        try:
+            super().__init__(*args, **kwargs)
+        except:
+            super().__init__()
             
     def set_run(self, key, value):
         self.__runtime.set(self.user_id, self.chat_id, self.name, key, value)
@@ -625,12 +627,12 @@ class AbstractState:
         except Exception as e:
             logger.exception(str(e))        
             
-    def return_as_hook(self, res):
+    def return_as_hook(self, res, value=None):
         from ninagram.response import InputResponse
         if isinstance(res, InputResponse):
             return res
         else:
-            return InputResponse(InputResponse.CONTINUE, menu_response=res)
+            return InputResponse(InputResponse.CONTINUE, res, value)
         
     def pre_post_group(self, update: telegram.Update, tg_message:telegram.Message):
         """This method is called before the user defined next method for the current step.

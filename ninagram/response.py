@@ -32,7 +32,8 @@ class MenuResponse:
             bot = update.effective_message.bot
                         
             # we check if it is a callback_query and we must edit the message
-            if update.callback_query != None and self.edit_inline_callback:
+            if update.callback_query != None and self.edit_inline_callback and \
+               len(self.message) < 4001:
                 update.callback_query.answer()
                 bot.edit_message_text(self.message, chat_id=update.effective_chat.id,
                                       message_id=update.callback_query.message.message_id, 
@@ -101,7 +102,7 @@ class InputResponse:
     ABORT = 0
     STOP = -1
     
-    def __init__(self, status, menu_response, value):
+    def __init__(self, status, menu_response=None, value=None):
         self.status = status
         self.value = value
         self.menu_response = menu_response

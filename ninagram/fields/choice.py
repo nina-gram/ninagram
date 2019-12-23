@@ -21,7 +21,6 @@ class SelectField(TgField):
         else:
             self.selected = kwargs.get('selected', None)
         self.offset = kwargs.get('offset', 10)
-        self.return_on_click = kwargs.get('return_on_click', False)
         self.initial = self.selected
         
     def menu(self, update:telegram.Update):

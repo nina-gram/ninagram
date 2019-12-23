@@ -5,6 +5,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from ninagram.response import MenuResponse, NextResponse, InputResponse
 from ninagram.fields.choice import UniqueSelectField
 from django.utils.translation import gettext as _
+from ninagram.states.forms import BaseForm
 
 
 class AbstractStateModel(AbstractState):
@@ -32,19 +33,32 @@ class AbstractStateModel(AbstractState):
     
     @register_step
     def step_2_add_menu(self, update: Update):
-        if self.add_input == 'one':
-            res = self.add_one(update.message.rest)
-        else:
-            res = self.add_step(update.message.rest)
+        Hook_instance = self.get_hook()
+        if not Hook_instance:
+            Hook_instance = BaseForm(update, self.dispatcher, self.model,
+                                     as_hook=True)
+            self.install_hook(Hook_instance)
             
-        if res:
-            message = "We created a new %s" % (self.Model()._meta.verbose_name)
-        else:
-            message = "We failed to create a new %s" % (self.Model()._meta.verbose_name)
+        res = Hook_instance.menu(update)
+        if res.status == InputResponse.CONTINUE:
+            return res.menu_response
+        elif res.status == InputResponse.ABORT:
+            replies = [[InlineKeyboardButton(_("Back"), callback_data="home")]]
+            kbd = InlineKeyboardMarkup(replies)
+            return MenuResponse("Aborted", kbd)
         
-        msg, kbd = self.menu_from_class_data(update, msg=message)
-        self.set_return(True)
-        return msg, kbd
+    def step_2_add_next(self, update:Update):
+        Hook_instance = self.get_hook()
+        if not Hook_instance:
+            Hook_instance = BaseForm(update, self.dispatcher, self.model,
+                                     as_hook=True)
+            self.install_hook(Hook_instance)
+            
+        res = Hook_instance.next(update)
+        if res.status == InputResponse.CONTINUE:
+            return NextResponse(self.name)
+        else:
+            return NextResponse(self.name, 'list')
     
     @register_step
     def step_3_list_menu(self, update: Update):
@@ -54,7 +68,7 @@ class AbstractStateModel(AbstractState):
             queryset = self.get_queryset(update)
             offset = self.get_number_items(update)
             
-            ctx = {'name':str(self.model), 'offset':offset,
+            ctx = {'name':self.model.__class__.__name__, 'offset':offset,
                    'choices':queryset, 'return_on_click':True}
             Hook_instance = UniqueSelectField(update, self.dispatcher, **ctx)
             self.install_hook(Hook_instance)
@@ -63,7 +77,9 @@ class AbstractStateModel(AbstractState):
         if res.status == InputResponse.CONTINUE:
             return res.menu_response
         elif res.status == InputResponse.ABORT:
-            return MenuResponse("Aborted")
+            replies = [[InlineKeyboardButton(_("Back"), callback_data="home")]]
+            kbd = InlineKeyboardMarkup(replies)
+            return MenuResponse("Aborted", kbd)
         
     def step_3_list_next(self, update:Update):
         Hook_instance = self.get_hook()

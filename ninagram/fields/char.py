@@ -3,7 +3,7 @@ import telegram
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from ninagram.response import MenuResponse, NextResponse, InputResponse
 from loguru import logger
-from ninagram.inputs.base import AbstractInput
+from ninagram.fields.base import TgField
 import re
 
 
@@ -23,60 +23,45 @@ class CharField(TgField):
         self.min_length = kwargs.pop("min_length", 1)
         self.accept_null = kwargs.pop("null", False)
         self.accept_blank = kwargs.pop("blank", False)
-        self.value = kwargs.value("value", -1)
+        self.value = kwargs.get("value", -1)
         if self.value != -1:
             self.set_run('value', value)
         super(CharField, self).__init__(update, dispatcher, *args, **kwargs)
         
-    def menu(self, update:telegram.Update):
-        try:
-            message += _("Send the value of {}\n\n").format(self.name)
-            
-            error = self.get_error()
-            if error:
-                message += _("Error: {}\n\n").format(error)
-                
-            man_set = self.get_run('man_set', False)
-            value = self.get_run('value', None)
-            
-            if value:
-                message += _("Current value: {}\n\n").format(value)
-            elif (not value) and man_set:
-                message += _("Current value: {}\n\n").format(value)
-                
-            replies = [[InlineKeyboardButton(_("OK"), callback_data="**ok**")],
-                       [InlineKeyboardButton(_("Pass"), callback_data='**pass**'),
-                        InlineKeyboardButton(_("Cancel"), callback_data="**cancel**")]]
-            kbd = InlineKeyboardMarkup(replies)
-            
-            menu_resp = MenuResponse(message, markup=kbd)
-            resp = InputResponse(InputResponse.CONTINUE, menu_resp, value)
-            return resp
-        except Exception as e:
-            logger.exception(str(e))
             
     def next(self, update:telegram.Update):
         try:
-            text = self.get_text()
-            if text.lower() == "**ok**" or text.lower() == "**pass**" \
-               or text.lower() == "**cancel**":
-                pass
-            else:
-                value = text
+            text = self.get_text(update)
+            logger.debug("text {}", text)
+            
+            if text == '**ok**':
+                value = self.get_run('value', None)
+                self.set_run('value', None)
+                return InputResponse(InputResponse.STOP, None, value=value)
+            elif text == '**cancel**':
+                return InputResponse(InputResponse.ABORT)
                 
-            if self.max_length and len(value) > self.max_length:
-                self.set_error(_("The submitted value is greater than the max length allowed"))
+            is_good, value = self.validate_data(text)
+            if not is_good:
+                self.set_error(value)
+            else:                
+                self.set_run('value', value)
                 
-            if self.min_length and len(value) < self.min_length:
-                self.set_error(_("The submitted value is lower than the min length allowed"))
-                
-            elif value is None and self.accept_blank is False:
-                self.set_error(_("The field can't be blank"))
-                
-            self.set_run('value', value)
             return InputResponse(InputResponse.CONTINUE, None, value)
         except Exception as e:
             logger.exception(str(e))
+            
+    def validate_data(self, value:str)-> tuple:
+        if self.max_length and len(value) > self.max_length:
+            return False, _("The submitted value is greater than the max length allowed")
+            
+        if self.min_length and len(value) < self.min_length:
+            return False, _("The submitted value is lower than the min length allowed")
+            
+        elif value is None and self.accept_blank is False:
+            return False, _("The field can't be blank")
+        
+        return True, value
             
             
 class TextField(CharField):
@@ -91,6 +76,7 @@ class TextField(CharField):
         kwargs['null'] = True
         kwargs['blank'] = True
         kwargs['max_length'] = 4096
+        super(TextField, self).__init__(update, dispatcher, *args, **kwargs)
         
         
 class EmailField(CharField):
@@ -100,15 +86,9 @@ class EmailField(CharField):
     
     EMAIL_RGX = re.compile("")
     
-    def next(self, update:telegram.Update):
-        try:
-            self.text = self.get_text(update)
-            
-            if self.EMAIL_RGX.match(self.text):
-                self.set_error(_('Email not valid! Retry'))
-                return InputResponse(InputResponse.CONTINUE, NextResponse(self.name))
-            
-            self.set_run('value', self.text)
-            return InputResponse(InputResponse.CONTINUE, NextResponse(self.name))
-        except Exception as e:
-            logger.exception(str(e))
+    def validate_data(self, value:str):
+        res = self.EMAIL_RGX.match(self.text)
+        if not res:
+            return False, _('Email not valid! Retry')
+        else:
+            return True, res.group(1)
